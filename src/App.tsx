@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Zap, Smile, DollarSign, ArrowRight, ShieldCheck, PlayCircle, Trophy, RotateCcw } from 'lucide-react';
-import { GameState, StatImpact, Option } from './types';
-import { scenarios } from './data/gameData';
+import { Zap, Smile, DollarSign, ArrowRight, ShieldCheck, PlayCircle, Trophy, RotateCcw, Loader2 } from 'lucide-react';
+import { GameState, StatImpact, Option, Scenario } from './types';
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>('intro');
   const [currentScenarioIndex, setCurrentScenarioIndex] = useState(0);
+  const [currentScenario, setCurrentScenario] = useState<Scenario | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Stats
   const [stats, setStats] = useState({
@@ -18,10 +19,38 @@ export default function App() {
   // Turn state
   const [selectedOption, setSelectedOption] = useState<Option | null>(null);
 
-  const currentScenario = scenarios[currentScenarioIndex];
+  const fetchNextScenario = async (turnIndex: number, currentStats: typeof stats, previousContext?: string) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/generate-scenario', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          turn: turnIndex + 1,
+          currentStats,
+          previousScenarioContext: previousContext,
+        }),
+      });
+      if (!response.ok) throw new Error('Falha ao gerar cenário');
+      
+      const newScenario: Scenario = await response.json();
+      // Safety mapping to ensure options structure
+      if (newScenario.options && newScenario.options.length) {
+         setCurrentScenario(newScenario);
+      }
+    } catch (error) {
+      console.error(error);
+      setIsLoading(false);
+      return; // Can implement error state here if needed
+    }
+    setIsLoading(false);
+  };
 
-  const handleStart = () => {
+  const handleStart = async () => {
     setGameState('playing');
+    await fetchNextScenario(0, stats, undefined);
   };
 
   const handleSelectOption = (option: Option) => {
@@ -41,16 +70,22 @@ export default function App() {
     setGameState('feedback');
   };
 
-  const handleNextTurn = () => {
+  const handleNextTurn = async () => {
     if (stats.efficiency <= 0 || stats.csat <= 0 || stats.budget <= 0) {
       setGameState('gameover');
       return;
     }
 
-    if (currentScenarioIndex + 1 < scenarios.length) {
-      setCurrentScenarioIndex((prev) => prev + 1);
+    // Win condition - finish after 15 dynamic turns for example, or keep going?
+    // Let's make it a 15-turn challenge
+    if (currentScenarioIndex + 1 < 15) {
+      const nextIndex = currentScenarioIndex + 1;
+      setCurrentScenarioIndex(nextIndex);
       setSelectedOption(null);
       setGameState('playing');
+      const previousContext = currentScenario?.context;
+      setCurrentScenario(null); // Clear to show loader properly if needed, but loader itself handles
+      await fetchNextScenario(nextIndex, stats, previousContext);
     } else {
       setGameState('victory');
     }
@@ -59,6 +94,7 @@ export default function App() {
   const handleRestart = () => {
     setStats({ efficiency: 100, csat: 100, budget: 100 });
     setCurrentScenarioIndex(0);
+    setCurrentScenario(null);
     setSelectedOption(null);
     setGameState('intro');
   };
@@ -185,66 +221,75 @@ export default function App() {
           )}
 
           {/* PLAYING STATE */}
-          {gameState === 'playing' && currentScenario && (
-            <motion.div 
-              key={`scenario-${currentScenario.id}`}
+          {gameState === 'playing' && (
+             <motion.div 
+              key={`scenario-container`}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="flex-1 overflow-y-auto p-4 md:p-12 w-full max-w-4xl mx-auto"
+              className="flex-1 overflow-y-auto p-4 md:p-12 w-full max-w-4xl mx-auto flex flex-col"
             >
-              <header className="mb-8">
-                <span className="text-emerald-400 font-mono text-sm tracking-wide uppercase mb-2 block">
-                  Turno {currentScenarioIndex + 1} / {scenarios.length}
-                </span>
-                <h2 className="text-2xl font-bold text-slate-200 mb-4">{currentScenario.phase}</h2>
-                <div className="p-6 bg-slate-800/50 rounded-2xl border border-slate-700/50 leading-relaxed text-slate-300">
-                  {currentScenario.context}
-                </div>
-              </header>
+              {isLoading || !currentScenario ? (
+                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-4">
+                   <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
+                   <p className="animate-pulse">A Diretiva está analisando a performance da operação ITIL...</p>
+                 </div>
+              ) : (
+                <>
+                  <header className="mb-8">
+                    <span className="text-emerald-400 font-mono text-sm tracking-wide uppercase mb-2 block">
+                      Turno {currentScenarioIndex + 1} / 15
+                    </span>
+                    <h2 className="text-2xl font-bold text-slate-200 mb-4">{currentScenario.phase}</h2>
+                    <div className="p-6 bg-slate-800/50 rounded-2xl border border-slate-700/50 leading-relaxed text-slate-300">
+                      {currentScenario.context}
+                    </div>
+                  </header>
 
-              <div className="mb-8">
-                <h3 className="text-lg font-medium text-slate-200 mb-6 flex items-start gap-3">
-                  <ArrowRight className="w-5 h-5 mt-1 shrink-0 text-emerald-400" /> 
-                  {currentScenario.question}
-                </h3>
-                
-                <div className="space-y-4">
-                  {currentScenario.options.map((option) => (
+                  <div className="mb-8">
+                    <h3 className="text-lg font-medium text-slate-200 mb-6 flex items-start gap-3">
+                      <ArrowRight className="w-5 h-5 mt-1 shrink-0 text-emerald-400" /> 
+                      {currentScenario.question}
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      {currentScenario.options.map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => handleSelectOption(option)}
+                          className={`w-full text-left p-5 rounded-xl border-2 transition-all ${
+                            selectedOption?.id === option.id 
+                              ? 'bg-slate-800 border-emerald-500 ring-4 ring-emerald-500/20 shadow-lg' 
+                              : 'bg-slate-900 border-transparent hover:border-slate-700 hover:bg-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-start gap-4">
+                            <span className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${
+                              selectedOption?.id === option.id ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                            }`}>
+                              {option.id}
+                            </span>
+                            <span className="text-slate-300 leading-relaxed pt-1">
+                              {option.text}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="py-6 border-t border-slate-800 flex justify-end">
                     <button
-                      key={option.id}
-                      onClick={() => handleSelectOption(option)}
-                      className={`w-full text-left p-5 rounded-xl border-2 transition-all ${
-                        selectedOption?.id === option.id 
-                          ? 'bg-slate-800 border-emerald-500 ring-4 ring-emerald-500/20 shadow-lg' 
-                          : 'bg-slate-900 border-transparent hover:border-slate-700 hover:bg-slate-800'
-                      }`}
+                      onClick={handleConfirmAction}
+                      disabled={!selectedOption}
+                      className="bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 hover:bg-emerald-400 text-slate-950 font-semibold px-8 py-4 rounded-xl flex items-center gap-3 transition-colors shadow-lg shadow-emerald-500/20"
                     >
-                      <div className="flex items-start gap-4">
-                        <span className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${
-                          selectedOption?.id === option.id ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                        }`}>
-                          {option.id}
-                        </span>
-                        <span className="text-slate-300 leading-relaxed pt-1">
-                          {option.text}
-                        </span>
-                      </div>
+                      <ShieldCheck className="w-5 h-5" />
+                      Confirmar Decisão
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="py-6 border-t border-slate-800 flex justify-end">
-                <button
-                  onClick={handleConfirmAction}
-                  disabled={!selectedOption}
-                  className="bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 hover:bg-emerald-400 text-slate-950 font-semibold px-8 py-4 rounded-xl flex items-center gap-3 transition-colors shadow-lg shadow-emerald-500/20"
-                >
-                  <ShieldCheck className="w-5 h-5" />
-                  Confirmar Decisão
-                </button>
-              </div>
+                  </div>
+                </>
+              )}
             </motion.div>
           )}
 
