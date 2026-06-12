@@ -1,0 +1,6 @@
+{
+  "name": "ITIL 4 Master: TechVanguard",
+  "description": "Um RPG e simulador de negócios em texto focado em preparar para o exame ITIL 4 Foundation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
